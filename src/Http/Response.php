@@ -4,73 +4,139 @@ namespace SdFramework\Http;
 
 class Response
 {
-    private int $statusCode = 200;
-    private array $headers = [];
-    private string $content = '';
+    private mixed $content;
+    private int $status;
+    private array $headers;
 
-    public function setStatusCode(int $statusCode): self
-    {
-        $this->statusCode = $statusCode;
-        return $this;
-    }
-
-    public function setHeader(string $name, string $value): self
-    {
-        $this->headers[$name] = $value;
-        return $this;
-    }
-
-    public function setContent(string $content): self
+    public function __construct(mixed $content = '', int $status = 200, array $headers = [])
     {
         $this->content = $content;
-        return $this;
+        $this->status = $status;
+        $this->headers = array_merge([
+            'Content-Type' => 'text/html; charset=UTF-8'
+        ], $headers);
     }
 
-    public function json(array $data): self
+    public static function make(mixed $content = '', int $status = 200, array $headers = []): static
     {
-        $this->setHeader('Content-Type', 'application/json');
-        $this->content = json_encode($data);
-        return $this;
+        return new static($content, $status, $headers);
     }
 
-    public function redirect(string $url, int $statusCode = 302): self
+    public static function json(mixed $data, int $status = 200, array $headers = []): static
     {
-        $this->setHeader('Location', $url);
-        $this->statusCode = $statusCode;
-        return $this;
+        $headers['Content-Type'] = 'application/json';
+        return new static(json_encode($data), $status, $headers);
     }
 
-    public function send(): void
+    public static function text(string $text, int $status = 200, array $headers = []): static
     {
-        http_response_code($this->statusCode);
+        $headers['Content-Type'] = 'text/plain';
+        return new static($text, $status, $headers);
+    }
 
-        foreach ($this->headers as $name => $value) {
-            header("$name: $value");
+    public static function html(string $html, int $status = 200, array $headers = []): static
+    {
+        return new static($html, $status, $headers);
+    }
+
+    public static function download(string $content, string $filename, array $headers = []): static
+    {
+        $headers['Content-Type'] = 'application/octet-stream';
+        $headers['Content-Disposition'] = 'attachment; filename="' . $filename . '"';
+        return new static($content, 200, $headers);
+    }
+
+    public static function file(string $path, string $filename = null, array $headers = []): static
+    {
+        if (!file_exists($path)) {
+            return static::notFound();
         }
 
-        echo $this->content;
+        $content = file_get_contents($path);
+        $filename = $filename ?? basename($path);
+        
+        return static::download($content, $filename, $headers);
     }
 
-    public static function json_response(array $data, int $status = 200): self
+    public static function redirect(string $url, int $status = 302): static
     {
-        return (new self())
-            ->setStatusCode($status)
-            ->json($data);
+        return new static('', $status, ['Location' => $url]);
     }
 
-    public static function text(string $content, int $status = 200): self
+    public static function back(): static
     {
-        return (new self())
-            ->setStatusCode($status)
-            ->setHeader('Content-Type', 'text/plain')
-            ->setContent($content);
+        return static::redirect($_SERVER['HTTP_REFERER'] ?? '/');
     }
 
-    public static function html(string $content, int $status = 200): self
+    // Common response helpers
+    public static function ok(mixed $data = null): static
     {
-        return (new self())
-            ->setStatusCode($status)
-            ->setHeader('Content-Type', 'text/html')
-            ->setContent($content);
+        return static::json(['success' => true, 'data' => $data]);
+    }
+
+    public static function error(string $message, int $status = 400): static
+    {
+        return static::json(['success' => false, 'error' => $message], $status);
+    }
+
+    public static function notFound(string $message = 'Not Found'): static
+    {
+        return static::error($message, 404);
+    }
+
+    public static function unauthorized(string $message = 'Unauthorized'): static
+    {
+        return static::error($message, 401);
+    }
+
+    public static function forbidden(string $message = 'Forbidden'): static
+    {
+        return static::error($message, 403);
+    }
+
+    public static function validationError(array $errors): static
+    {
+        return static::json([
+            'success' => false,
+            'message' => 'Validation failed',
+            'errors' => $errors
+        ], 422);
+    }
+
+    // Response modification
+    public function header(string $key, string $value): static
+    {
+        $this->headers[$key] = $value;
+        return $this;
+    }
+
+    public function withHeaders(array $headers): static
+    {
+        $this->headers = array_merge($this->headers, $headers);
+        return $this;
+    }
+
+    public function status(int $status): static
+    {
+        $this->status = $status;
+        return $this;
+    }
+
+    // Send the response
+    public function send(): void
+    {
+        if (!headers_sent()) {
+            http_response_code($this->status);
+            
+            foreach ($this->headers as $name => $value) {
+                header("$name: $value");
+            }
+        }
+
+        if (is_string($this->content) || is_numeric($this->content)) {
+            echo $this->content;
+        } elseif (is_array($this->content) || is_object($this->content)) {
+            echo json_encode($this->content);
+        }
     }
 }

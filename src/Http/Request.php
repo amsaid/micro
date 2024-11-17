@@ -9,7 +9,7 @@ class Request
     private array $server;
     private array $files;
     private array $cookies;
-    private ?string $content;
+    private ?string $body;
 
     public function __construct()
     {
@@ -18,26 +18,10 @@ class Request
         $this->server = $_SERVER;
         $this->files = $_FILES;
         $this->cookies = $_COOKIE;
-        $this->content = file_get_contents('php://input');
+        $this->body = file_get_contents('php://input');
     }
 
-    public function getMethod(): string
-    {
-        return $this->server['REQUEST_METHOD'];
-    }
-
-    public function getUri(): string
-    {
-        return $this->server['REQUEST_URI'];
-    }
-
-    public function getPath(): string
-    {
-        $path = parse_url($this->getUri(), PHP_URL_PATH);
-        return $path ?: '/';
-    }
-
-    public function getQuery(string $key = null, $default = null)
+    public function get(string $key = null, mixed $default = null): mixed
     {
         if ($key === null) {
             return $this->get;
@@ -45,7 +29,7 @@ class Request
         return $this->get[$key] ?? $default;
     }
 
-    public function getPost(string $key = null, $default = null)
+    public function post(string $key = null, mixed $default = null): mixed
     {
         if ($key === null) {
             return $this->post;
@@ -53,32 +37,111 @@ class Request
         return $this->post[$key] ?? $default;
     }
 
-    public function getJson(): ?array
+    public function json(): ?array
     {
-        if ($this->content === null) {
-            return null;
+        if ($this->isJson()) {
+            return json_decode($this->body, true);
         }
-        return json_decode($this->content, true);
+        return null;
     }
 
-    public function getHeader(string $name): ?string
+    public function all(): array
     {
-        $name = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
-        return $this->server[$name] ?? null;
+        return array_merge(
+            $this->get,
+            $this->post,
+            $this->json() ?? []
+        );
     }
 
-    public function getCookie(string $name): ?string
+    public function input(string $key = null, mixed $default = null): mixed
     {
-        return $this->cookies[$name] ?? null;
+        $data = $this->all();
+        if ($key === null) {
+            return $data;
+        }
+        return $data[$key] ?? $default;
     }
 
-    public function getFile(string $name): ?array
+    public function file(string $key): ?array
     {
-        return $this->files[$name] ?? null;
+        return $this->files[$key] ?? null;
     }
 
-    public function isXhr(): bool
+    public function cookie(string $key = null, mixed $default = null): mixed
     {
-        return $this->getHeader('X-Requested-With') === 'XMLHttpRequest';
+        if ($key === null) {
+            return $this->cookies;
+        }
+        return $this->cookies[$key] ?? $default;
+    }
+
+    public function header(string $key): ?string
+    {
+        $header = 'HTTP_' . strtoupper(str_replace('-', '_', $key));
+        return $this->server[$header] ?? null;
+    }
+
+    public function method(): string
+    {
+        return strtoupper($this->server['REQUEST_METHOD']);
+    }
+
+    public function path(): string
+    {
+        $path = parse_url($this->server['REQUEST_URI'], PHP_URL_PATH);
+        return $path ?: '/';
+    }
+
+    public function url(): string
+    {
+        return $this->server['REQUEST_SCHEME'] . '://' . 
+               $this->server['HTTP_HOST'] . 
+               $this->server['REQUEST_URI'];
+    }
+
+    public function isMethod(string $method): bool
+    {
+        return $this->method() === strtoupper($method);
+    }
+
+    public function isGet(): bool
+    {
+        return $this->isMethod('GET');
+    }
+
+    public function isPost(): bool
+    {
+        return $this->isMethod('POST');
+    }
+
+    public function isPut(): bool
+    {
+        return $this->isMethod('PUT');
+    }
+
+    public function isDelete(): bool
+    {
+        return $this->isMethod('DELETE');
+    }
+
+    public function isAjax(): bool
+    {
+        return $this->header('X-Requested-With') === 'XMLHttpRequest';
+    }
+
+    public function isJson(): bool
+    {
+        return str_contains($this->header('Content-Type') ?? '', 'application/json');
+    }
+
+    public function ip(): string
+    {
+        return $this->server['REMOTE_ADDR'];
+    }
+
+    public function userAgent(): string
+    {
+        return $this->server['HTTP_USER_AGENT'] ?? '';
     }
 }
