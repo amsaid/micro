@@ -122,6 +122,11 @@ class Response
         return $this;
     }
 
+    public function getStatus(): int
+    {
+        return $this->status;
+    }
+
     // Send the response
     public function send(): void
     {

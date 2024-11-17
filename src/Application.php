@@ -8,6 +8,8 @@ use SdFramework\Event\EventDispatcher;
 use SdFramework\Http\Request;
 use SdFramework\Http\Response;
 use SdFramework\Routing\Router;
+use SdFramework\Log\Logger;
+use SdFramework\Log\LoggerInterface;
 
 class Application
 {
@@ -15,6 +17,7 @@ class Application
     private Config $config;
     private Router $router;
     private EventDispatcher $eventDispatcher;
+    private LoggerInterface $logger;
 
     public function __construct(string $configPath = null)
     {
@@ -27,12 +30,14 @@ class Application
 
         $this->eventDispatcher = new EventDispatcher();
         $this->router = new Router($this->container);
+        $this->logger = new Logger();
 
         // Register core services
         $this->container->set(Container::class, $this->container);
         $this->container->set(Config::class, $this->config);
         $this->container->set(Router::class, $this->router);
         $this->container->set(EventDispatcher::class, $this->eventDispatcher);
+        $this->container->set(LoggerInterface::class, $this->logger);
     }
 
     public function getContainer(): Container
@@ -55,11 +60,27 @@ class Application
         return $this->config;
     }
 
+    public function getLogger(): LoggerInterface
+    {
+        return $this->logger;
+    }
+
     public function run(): void
     {
         try {
             $request = new Request();
+            $this->logger->info('Request received', [
+                'method' => $request->method(),
+                'path' => $request->path(),
+                'ip' => $request->ip()
+            ]);
+
             $response = $this->router->dispatch($request);
+            $this->logger->info('Response sent', [
+                'status' => $response->getStatus(),
+                'path' => $request->path()
+            ]);
+
             $response->send();
         } catch (\Throwable $e) {
             $this->handleError($e);
@@ -93,6 +114,12 @@ class Application
 
     private function handleError(\Throwable $e): void
     {
+        $this->logger->error($e->getMessage(), [
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
         if ($this->config->get('app.debug', false)) {
             $response = Response::json([
                 'success' => false,
