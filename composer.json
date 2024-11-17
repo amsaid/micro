@@ -1,0 +1,26 @@
+{
+    "name": "sdframework/micro",
+    "description": "A lightweight and extensible PHP micro framework",
+    "type": "library",
+    "require": {
+        "php": ">=8.1",
+        "psr/container": "^2.0",
+        "psr/event-dispatcher": "^1.0",
+        "psr/http-message": "^2.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-server-middleware": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SdFramework\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "SdFramework",
+            "email": "contact@sdframework.dev"
+        }
+    ],
+    "minimum-stability": "stable",
+    "license": "MIT"
+}
