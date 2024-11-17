@@ -66,6 +66,31 @@ class Application
         }
     }
 
+    public function get(string $path, callable $handler): void
+    {
+        $this->router->addRoute('GET', $path, $handler);
+    }
+
+    public function post(string $path, callable $handler): void
+    {
+        $this->router->addRoute('POST', $path, $handler);
+    }
+
+    public function put(string $path, callable $handler): void
+    {
+        $this->router->addRoute('PUT', $path, $handler);
+    }
+
+    public function delete(string $path, callable $handler): void
+    {
+        $this->router->addRoute('DELETE', $path, $handler);
+    }
+
+    public function patch(string $path, callable $handler): void
+    {
+        $this->router->addRoute('PATCH', $path, $handler);
+    }
+
     private function handleError(\Throwable $e): void
     {
         if ($this->config->get('app.debug', false)) {
