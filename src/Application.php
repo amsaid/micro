@@ -94,7 +94,8 @@ class Application
     private function handleError(\Throwable $e): void
     {
         if ($this->config->get('app.debug', false)) {
-            $response = Response::json_response([
+            $response = Response::json([
+                'success' => false,
                 'error' => [
                     'message' => $e->getMessage(),
                     'file' => $e->getFile(),
@@ -103,9 +104,7 @@ class Application
                 ]
             ], 500);
         } else {
-            $response = Response::json_response([
-                'error' => 'Internal Server Error'
-            ], 500);
+            $response = Response::error('Internal Server Error', 500);
         }
 
         $response->send();

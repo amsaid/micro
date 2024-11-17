@@ -56,8 +56,8 @@ class Router
 
     public function dispatch(Request $request): Response
     {
-        $method = $request->getMethod();
-        $path = $request->getPath();
+        $method = $request->method();
+        $path = $request->path();
 
         foreach ($this->routes as $route) {
             if ($route['method'] !== $method) {
