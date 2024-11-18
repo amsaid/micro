@@ -2,182 +2,143 @@
 
 namespace SdFramework\Container;
 
-use Psr\Container\ContainerInterface;
 use ReflectionClass;
 use ReflectionParameter;
-use SdFramework\Exception\ContainerException;
-use SdFramework\Exception\NotFoundException;
+use SdFramework\Exceptions\ContainerException;
 
-class Container implements ContainerInterface
+class Container
 {
-    private array $instances = [];
-    private array $definitions = [];
     private array $bindings = [];
+    private array $instances = [];
+    private array $resolved = [];
 
-    public function get(string $id)
-    {
-        if (!$this->has($id)) {
-            throw new NotFoundException("No entry was found for {$id} identifier");
-        }
-
-        if (isset($this->instances[$id])) {
-            return $this->instances[$id];
-        }
-
-        if (isset($this->definitions[$id])) {
-            $definition = $this->definitions[$id];
-            if (is_callable($definition)) {
-                return $this->instances[$id] = $definition($this);
-            }
-            return $this->instances[$id] = $definition;
-        }
-
-        if (class_exists($id)) {
-            return $this->instances[$id] = $this->autowire($id);
-        }
-
-        throw new ContainerException("Could not resolve {$id}");
-    }
-
-    public function has(string $id): bool
-    {
-        return isset($this->instances[$id]) || isset($this->definitions[$id]) || class_exists($id) || isset($this->bindings[$id]);
-    }
-
-    public function set(string $id, $concrete): void
-    {
-        $this->definitions[$id] = $concrete;
-    }
-
-    public function bind(string $abstract, mixed $concrete = null, bool $shared = false): void
+    public function bind(string $abstract, mixed $concrete = null): self
     {
         if (is_null($concrete)) {
             $concrete = $abstract;
         }
 
-        $this->bindings[$abstract] = [
-            'concrete' => $concrete,
-            'shared' => $shared,
-        ];
+        $this->bindings[$abstract] = $concrete;
+        return $this;
     }
 
-    public function singleton(string $abstract, mixed $concrete = null): void
+    public function singleton(string $abstract, mixed $concrete = null): self
     {
-        $this->bind($abstract, $concrete, true);
+        $this->bind($abstract, $concrete);
+        $this->resolved[$abstract] = true;
+        return $this;
     }
 
-    public function instance(string $abstract, mixed $instance): void
+    public function instance(string $abstract, object $instance): self
     {
         $this->instances[$abstract] = $instance;
+        return $this;
     }
 
-    public function make(string $abstract, array $parameters = []): mixed
+    public function make(string $abstract, array $parameters = []): object
     {
-        // Return existing instance if it exists
+        // If we have an instance, return it
         if (isset($this->instances[$abstract])) {
             return $this->instances[$abstract];
         }
 
         // Get the concrete implementation
-        $concrete = $this->bindings[$abstract]['concrete'] ?? $abstract;
+        $concrete = $this->bindings[$abstract] ?? $abstract;
 
-        // If the concrete is a closure, execute it
-        if ($concrete instanceof \Closure) {
-            $object = $concrete($this, $parameters);
-        } else {
-            $object = $this->build($concrete, $parameters);
+        // If we have a singleton and it's resolved, return the instance
+        if (isset($this->resolved[$abstract]) && isset($this->instances[$abstract])) {
+            return $this->instances[$abstract];
         }
 
-        // Store the instance if it's a singleton
-        if (isset($this->bindings[$abstract]) && $this->bindings[$abstract]['shared']) {
-            $this->instances[$abstract] = $object;
+        // Build the instance
+        $instance = $this->build($concrete, $parameters);
+
+        // If it's a singleton, store it
+        if (isset($this->resolved[$abstract])) {
+            $this->instances[$abstract] = $instance;
         }
 
-        return $object;
+        return $instance;
     }
 
     private function build(string $concrete, array $parameters = []): object
     {
-        $reflector = new ReflectionClass($concrete);
+        try {
+            $reflector = new ReflectionClass($concrete);
 
-        if (!$reflector->isInstantiable()) {
-            throw new \RuntimeException("Class {$concrete} is not instantiable");
+            if (!$reflector->isInstantiable()) {
+                throw new ContainerException("Class {$concrete} is not instantiable");
+            }
+
+            $constructor = $reflector->getConstructor();
+
+            if (is_null($constructor)) {
+                return new $concrete;
+            }
+
+            $dependencies = $this->resolveDependencies($constructor->getParameters(), $parameters);
+
+            return $reflector->newInstanceArgs($dependencies);
+        } catch (\ReflectionException $e) {
+            throw new ContainerException("Error resolving {$concrete}: " . $e->getMessage());
         }
-
-        $constructor = $reflector->getConstructor();
-
-        if (is_null($constructor)) {
-            return new $concrete;
-        }
-
-        $dependencies = $constructor->getParameters();
-        $resolvedDependencies = $this->resolveDependencies($dependencies, $parameters);
-
-        return $reflector->newInstanceArgs($resolvedDependencies);
     }
 
     private function resolveDependencies(array $dependencies, array $parameters = []): array
     {
-        $resolvedDependencies = [];
+        $resolved = [];
 
         /** @var ReflectionParameter $dependency */
         foreach ($dependencies as $dependency) {
-            // If the parameter was passed in, use it
-            if (array_key_exists($dependency->getName(), $parameters)) {
-                $resolvedDependencies[] = $parameters[$dependency->getName()];
-                continue;
-            }
-
-            // If the parameter has a type hint, try to resolve it
+            $name = $dependency->getName();
             $type = $dependency->getType();
+
+            // If we have a parameter override, use it
+            if (isset($parameters[$name])) {
+                $resolved[] = $parameters[$name];
+                continue;
+            }
+
+            // If parameter is type-hinted with a class
             if ($type && !$type->isBuiltin()) {
-                $resolvedDependencies[] = $this->make($type->getName());
-                continue;
+                try {
+                    $resolved[] = $this->make($type->getName());
+                    continue;
+                } catch (ContainerException $e) {
+                    // If we can't resolve it and it's optional, use the default value
+                    if ($dependency->isDefaultValueAvailable()) {
+                        $resolved[] = $dependency->getDefaultValue();
+                        continue;
+                    }
+                    throw $e;
+                }
             }
 
-            // If the parameter has a default value, use it
+            // If parameter has a default value
             if ($dependency->isDefaultValueAvailable()) {
-                $resolvedDependencies[] = $dependency->getDefaultValue();
+                $resolved[] = $dependency->getDefaultValue();
                 continue;
             }
 
-            throw new \RuntimeException(
-                "Unable to resolve dependency: {$dependency->getName()}"
-            );
+            throw new ContainerException("Unable to resolve dependency: {$name}");
         }
 
-        return $resolvedDependencies;
+        return $resolved;
     }
 
-    private function autowire(string $class)
+    public function has(string $abstract): bool
     {
-        $reflector = new \ReflectionClass($class);
-        
-        if (!$reflector->isInstantiable()) {
-            throw new ContainerException("Class {$class} is not instantiable");
+        return isset($this->bindings[$abstract]) 
+            || isset($this->instances[$abstract]) 
+            || class_exists($abstract);
+    }
+
+    public function get(string $abstract): mixed
+    {
+        if (!$this->has($abstract)) {
+            throw new ContainerException("No binding found for {$abstract}");
         }
 
-        $constructor = $reflector->getConstructor();
-        if (is_null($constructor)) {
-            return new $class();
-        }
-
-        $parameters = $constructor->getParameters();
-        $dependencies = [];
-
-        foreach ($parameters as $parameter) {
-            $type = $parameter->getType();
-            if (!$type) {
-                if ($parameter->isDefaultValueAvailable()) {
-                    $dependencies[] = $parameter->getDefaultValue();
-                    continue;
-                }
-                throw new ContainerException("Cannot resolve parameter {$parameter->getName()}");
-            }
-
-            $dependencies[] = $this->get($type->getName());
-        }
-
-        return $reflector->newInstanceArgs($dependencies);
+        return $this->make($abstract);
     }
 }
