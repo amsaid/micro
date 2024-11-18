@@ -87,29 +87,34 @@ class Application
         }
     }
 
-    public function get(string $path, callable $handler): void
+    public function get(string $path, mixed $handler): self
     {
         $this->router->addRoute('GET', $path, $handler);
+        return $this;
     }
 
-    public function post(string $path, callable $handler): void
+    public function post(string $path, mixed $handler): self
     {
         $this->router->addRoute('POST', $path, $handler);
+        return $this;
     }
 
-    public function put(string $path, callable $handler): void
+    public function put(string $path, mixed $handler): self
     {
         $this->router->addRoute('PUT', $path, $handler);
+        return $this;
     }
 
-    public function delete(string $path, callable $handler): void
+    public function delete(string $path, mixed $handler): self
     {
         $this->router->addRoute('DELETE', $path, $handler);
+        return $this;
     }
 
-    public function patch(string $path, callable $handler): void
+    public function patch(string $path, mixed $handler): self
     {
         $this->router->addRoute('PATCH', $path, $handler);
+        return $this;
     }
 
     private function handleError(\Throwable $e): void
